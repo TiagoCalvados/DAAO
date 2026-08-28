@@ -1,10 +1,10 @@
 [build-system]
-requires = ["uv_build>=0.11.26,<0.12"]
+requires = ["uv_build>=0.11.26,<0.13"]
 build-backend = "uv_build"
 
 [project]
 name = "daao"
-version = "0.2.1"
+version = "0.3.3"
 description = "DIY Astronomical Attic Observatory desktop receiver and overlay"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
@@ -18,5 +18,5 @@ dependencies = [
 daao = "daao.app:main"
 
 [tool.uv]
-required-version = ">=0.11.26,<0.12"
+required-version = ">=0.11.26,<0.13"
 system-certs = true

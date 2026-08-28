@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.Surface
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
@@ -39,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private val networkExecutor = Executors.newSingleThreadExecutor()
     private val sending = AtomicBoolean(false)
     private val orientationTracker by lazy { OrientationTracker(this) }
+    private val locationTracker by lazy { LocationTracker(this) }
     private val protocol by lazy {
         DaaoProtocol(deviceId = "${Build.MANUFACTURER} ${Build.MODEL}")
     }
@@ -49,13 +51,25 @@ class MainActivity : ComponentActivity() {
     private var streamingEndpoint: URI? = null
     private var nextFrameAtNs = 0L
     private var sentFrames = 0L
+    @Volatile
+    private var imageTargetRotationDegrees = 0
 
     private val requestCameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) {
                 startCamera()
+                requestLocationIfNeeded()
             } else {
                 setStatus("Camera permission is required to stream images.")
+            }
+        }
+
+    private val requestLocationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            if (result.values.any { it }) {
+                locationTracker.start()
+            } else {
+                setStatus("Location permission was denied; the sky overlay will wait for GPS.")
             }
         }
 
@@ -74,7 +88,7 @@ class MainActivity : ComponentActivity() {
         serverUrl.setText(
             preferences.getString(
                 "server_url",
-                "http://192.168.178.29:8000/data",
+                "",
             ),
         )
         streamButton.setOnClickListener {
@@ -102,6 +116,7 @@ class MainActivity : ComponentActivity() {
             PackageManager.PERMISSION_GRANTED
         ) {
             startCamera()
+            requestLocationIfNeeded()
         } else {
             requestCameraPermission.launch(Manifest.permission.CAMERA)
         }
@@ -110,10 +125,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         orientationTracker.start()
+        locationTracker.start()
     }
 
     override fun onPause() {
         orientationTracker.stop()
+        locationTracker.stop()
         super.onPause()
     }
 
@@ -130,8 +147,16 @@ class MainActivity : ComponentActivity() {
             {
                 try {
                     val provider = providerFuture.get()
+                    val targetRotation = previewView.display.rotation
+                    imageTargetRotationDegrees = when (targetRotation) {
+                        Surface.ROTATION_0 -> 0
+                        Surface.ROTATION_90 -> 90
+                        Surface.ROTATION_180 -> 180
+                        Surface.ROTATION_270 -> 270
+                        else -> 0
+                    }
                     val preview = Preview.Builder()
-                        .setTargetRotation(previewView.display.rotation)
+                        .setTargetRotation(targetRotation)
                         .build()
                         .also { it.surfaceProvider = previewView.surfaceProvider }
                     val resolutionSelector = ResolutionSelector.Builder()
@@ -144,7 +169,7 @@ class MainActivity : ComponentActivity() {
                         .build()
                     val analysis = ImageAnalysis.Builder()
                         .setResolutionSelector(resolutionSelector)
-                        .setTargetRotation(previewView.display.rotation)
+                        .setTargetRotation(targetRotation)
                         .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                         .setOutputImageRotationEnabled(true)
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -165,6 +190,19 @@ class MainActivity : ComponentActivity() {
             },
             ContextCompat.getMainExecutor(this),
         )
+    }
+
+    private fun requestLocationIfNeeded() {
+        if (locationTracker.hasPermission) {
+            locationTracker.start()
+        } else {
+            requestLocationPermission.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                ),
+            )
+        }
     }
 
     private fun analyzeFrame(image: ImageProxy) {
@@ -191,6 +229,11 @@ class MainActivity : ComponentActivity() {
                 snapshot = snapshot,
                 capturedAtEpochNs = capturedAtEpochNs,
                 imageTimestampNs = capturedAtEpochNs,
+                cameraRollDegrees = OrientationMath.cameraRollForTarget(
+                    snapshot.cameraPose.cameraRollDegrees,
+                    imageTargetRotationDegrees,
+                ),
+                location = locationTracker.snapshot(),
             )
             val multipart = DaaoProtocol.multipart(json, jpeg)
             val endpoint = streamingEndpoint

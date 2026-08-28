@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">DAAO Camera</string>
     <string name="app_title">DIY Astronomical Attic Observatory</string>
-    <string name="server_url_hint">http://192.168.1.100:8000/data</string>
+    <string name="server_url_hint">http://YOUR-COMPUTER-IP:8000/data</string>
     <string name="start_streaming">Start streaming</string>
     <string name="stop_streaming">Stop streaming</string>
     <string name="waiting_for_camera">Waiting for camera permission…</string>

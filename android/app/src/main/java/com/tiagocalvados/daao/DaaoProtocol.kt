@@ -18,6 +18,8 @@ class DaaoProtocol(
         snapshot: OrientationSnapshot,
         capturedAtEpochNs: Long,
         imageTimestampNs: Long,
+        cameraRollDegrees: Double? = snapshot.cameraPose.cameraRollDegrees,
+        location: LocationSnapshot? = null,
     ): String {
         val compassValues = JSONObject()
         snapshot.cameraPose.magneticBearingDegrees?.let {
@@ -25,6 +27,15 @@ class DaaoProtocol(
         }
         snapshot.headingAccuracyDegrees?.let {
             compassValues.put("headingAccuracy", it)
+        }
+        if (location != null) {
+            compassValues.put("magneticDeclination", location.magneticDeclinationDegrees)
+            snapshot.cameraPose.magneticBearingDegrees?.let {
+                compassValues.put(
+                    "trueBearing",
+                    normalizeDegrees(it + location.magneticDeclinationDegrees),
+                )
+            }
         }
 
         val orientationValues = JSONObject()
@@ -37,6 +48,9 @@ class DaaoProtocol(
             .put("quaternionZ", snapshot.quaternionZ)
             .put("sensorAccuracy", snapshot.sensorAccuracy)
             .put("sensorTimestampNs", snapshot.sensorTimestampNs)
+        cameraRollDegrees?.let {
+            orientationValues.put("cameraRoll", it)
+        }
         snapshot.cameraPose.deviceTopBearingDegrees?.let {
             orientationValues.put("deviceTopBearing", it)
         }
@@ -63,6 +77,23 @@ class DaaoProtocol(
                         JSONObject().put("horizontalFov", horizontalFovDegrees),
                     ),
             )
+        if (location != null) {
+            val locationValues = JSONObject()
+                .put("latitude", location.latitudeDegrees)
+                .put("longitude", location.longitudeDegrees)
+                .put("locationTimestampEpochMs", location.timestampEpochMs)
+                .put("magneticDeclination", location.magneticDeclinationDegrees)
+            location.altitudeMeters?.let { locationValues.put("altitudeMeters", it) }
+            location.horizontalAccuracyMeters?.let {
+                locationValues.put("horizontalAccuracy", it)
+            }
+            payload.put(
+                JSONObject()
+                    .put("name", "location")
+                    .put("time", location.timestampEpochMs * 1_000_000L)
+                    .put("values", locationValues),
+            )
+        }
 
         return JSONObject()
             .put("protocol", "daao-mobile-v1")
@@ -75,6 +106,8 @@ class DaaoProtocol(
     }
 
     companion object {
+        private fun normalizeDegrees(value: Double): Double = ((value % 360.0) + 360.0) % 360.0
+
         fun normalizeEndpoint(input: String): URI {
             val trimmed = input.trim()
             require(trimmed.isNotEmpty()) { "Enter the DAAO receiver address" }

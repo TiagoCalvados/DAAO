@@ -8,6 +8,8 @@ htmlcov/
 build/
 dist/
 *.log
+.env
+AGENTS.md
 
 # Android local/build state
 android/.gradle/

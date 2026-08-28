@@ -9,6 +9,7 @@ import json
 import re
 from typing import Any
 
+from daao.attitude import normalize_roll
 from daao.compass import normalize_heading
 from daao.models import SensorUpdate
 
@@ -36,6 +37,36 @@ HEADING_KEYS = (
     "azimuth",
 )
 MAGNETIC_HEADING_KEYS = HEADING_KEYS[:3]
+TRUE_HEADING_KEYS = (
+    "trueBearing",
+    "true_bearing",
+    "trueHeading",
+    "true_heading",
+)
+LATITUDE_KEYS = ("latitude", "lat")
+LONGITUDE_KEYS = ("longitude", "lon", "lng")
+ALTITUDE_KEYS = ("altitude", "altitudeMeters", "altitude_meters")
+LOCATION_ACCURACY_KEYS = (
+    "horizontalAccuracy",
+    "locationAccuracy",
+    "accuracyMeters",
+)
+DECLINATION_KEYS = (
+    "magneticDeclination",
+    "magnetic_declination",
+    "declination",
+)
+CAMERA_ELEVATION_KEYS = (
+    "cameraElevation",
+    "camera_elevation",
+    "elevation",
+    "pitch",
+)
+CAMERA_ROLL_KEYS = (
+    "cameraRoll",
+    "camera_roll",
+    "roll",
+)
 FOV_KEYS = (
     "horizontalFov",
     "horizontalFOV",
@@ -177,14 +208,31 @@ def parse_sensor_logger_message(document: Any) -> SensorUpdate:
         raise PayloadError("JSON body must be an object or array")
 
     heading = None
+    true_heading = _first_number((metadata,), TRUE_HEADING_KEYS)
+    if true_heading is not None:
+        true_heading = normalize_heading(true_heading)
     heading_accuracy = None
     heading_time = -1
+    camera_elevation = _first_number((metadata,), CAMERA_ELEVATION_KEYS)
+    if camera_elevation is not None and not -90.0 <= camera_elevation <= 90.0:
+        camera_elevation = None
+    elevation_time = -1
+    camera_roll = _first_number((metadata,), CAMERA_ROLL_KEYS)
+    if camera_roll is not None:
+        camera_roll = normalize_roll(camera_roll)
+    roll_time = -1
     image = _top_level_image(metadata)
     image_time = _integer(metadata.get("imageTimestampNs"))
     if image_time is None and image is not None:
         image_time = _integer(metadata.get("time"))
     latest_image_time = image_time if image_time is not None else -1
     horizontal_fov = _first_number((metadata,), FOV_KEYS)
+    latitude = _first_number((metadata,), LATITUDE_KEYS)
+    longitude = _first_number((metadata,), LONGITUDE_KEYS)
+    altitude = _first_number((metadata,), ALTITUDE_KEYS)
+    location_accuracy = _first_number((metadata,), LOCATION_ACCURACY_KEYS)
+    magnetic_declination = _first_number((metadata,), DECLINATION_KEYS)
+    location_time = -1
     reading_count = 0
 
     for raw_reading in payload:
@@ -207,6 +255,38 @@ def parse_sensor_logger_message(document: Any) -> SensorUpdate:
                     (values, raw_reading),
                     ("headingAccuracy", "bearingAccuracy", "accuracy"),
                 )
+        candidate_true_heading = _first_number(
+            (values, raw_reading),
+            TRUE_HEADING_KEYS,
+        )
+        if candidate_true_heading is not None and ordering_time >= heading_time:
+            true_heading = normalize_heading(candidate_true_heading)
+
+        is_orientation = (
+            name in {"orientation", "attitude", "rotation"}
+            or "orientation" in name
+            or "attitude" in name
+        )
+        if is_orientation:
+            candidate_elevation = _first_number(
+                (values, raw_reading),
+                CAMERA_ELEVATION_KEYS,
+            )
+            if (
+                candidate_elevation is not None
+                and -90.0 <= candidate_elevation <= 90.0
+                and ordering_time >= elevation_time
+            ):
+                camera_elevation = candidate_elevation
+                elevation_time = ordering_time
+
+            candidate_roll = _first_number(
+                (values, raw_reading),
+                CAMERA_ROLL_KEYS,
+            )
+            if candidate_roll is not None and ordering_time >= roll_time:
+                camera_roll = normalize_roll(candidate_roll)
+                roll_time = ordering_time
 
         is_camera = name in IMAGE_NAMES or "camera" in name or "image" in name
         candidate_image = _image_from_reading(raw_reading, is_camera)
@@ -219,15 +299,60 @@ def parse_sensor_logger_message(document: Any) -> SensorUpdate:
         if candidate_fov is not None and 1.0 < candidate_fov < 179.0:
             horizontal_fov = candidate_fov
 
+        is_location = name in {"location", "gps", "position"} or "location" in name
+        if is_location and ordering_time >= location_time:
+            candidate_latitude = _first_number(
+                (values, raw_reading),
+                LATITUDE_KEYS,
+            )
+            candidate_longitude = _first_number(
+                (values, raw_reading),
+                LONGITUDE_KEYS,
+            )
+            if (
+                candidate_latitude is not None
+                and candidate_longitude is not None
+                and -90.0 <= candidate_latitude <= 90.0
+                and -180.0 <= candidate_longitude <= 180.0
+            ):
+                latitude = candidate_latitude
+                longitude = candidate_longitude
+                altitude = _first_number((values, raw_reading), ALTITUDE_KEYS)
+                location_accuracy = _first_number(
+                    (values, raw_reading),
+                    LOCATION_ACCURACY_KEYS,
+                )
+                magnetic_declination = _first_number(
+                    (values, raw_reading),
+                    DECLINATION_KEYS,
+                )
+                location_time = ordering_time
+
     if horizontal_fov is not None and not 1.0 < horizontal_fov < 179.0:
         horizontal_fov = None
+    if latitude is None or not -90.0 <= latitude <= 90.0:
+        latitude = None
+    if longitude is None or not -180.0 <= longitude <= 180.0:
+        longitude = None
+    if location_accuracy is not None and location_accuracy < 0.0:
+        location_accuracy = None
+    if true_heading is None and heading is not None and magnetic_declination is not None:
+        true_heading = normalize_heading(heading + magnetic_declination)
 
     return SensorUpdate(
         heading=heading,
+        true_heading=true_heading,
         heading_accuracy=heading_accuracy,
+        camera_elevation=camera_elevation,
+        camera_roll=camera_roll,
         image=image,
         image_timestamp_ns=image_time,
         horizontal_fov=horizontal_fov,
+        latitude=latitude,
+        longitude=longitude,
+        altitude=altitude,
+        location_accuracy=location_accuracy,
+        magnetic_declination=magnetic_declination,
         message_id=_integer(metadata.get("messageId")),
         session_id=_optional_string(metadata.get("sessionId")),
         device_id=_optional_string(metadata.get("deviceId")),
