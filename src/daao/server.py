@@ -72,7 +72,7 @@ class SensorServer:
         receiver = self
 
         class SensorRequestHandler(BaseHTTPRequestHandler):
-            server_version = "DAAO/0.3.3"
+            server_version = "DAAO/0.3.4"
 
             def do_GET(self) -> None:
                 logger.info(

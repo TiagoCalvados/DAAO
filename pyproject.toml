@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "daao"
-version = "0.3.3"
+version = "0.3.4"
 description = "DIY Astronomical Attic Observatory desktop receiver and overlay"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
