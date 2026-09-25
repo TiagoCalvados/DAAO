@@ -9,60 +9,61 @@
         android:id="@+id/preview"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:contentDescription="@string/app_title" />
+        android:contentDescription="@string/camera_preview" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:layout_margin="16dp"
+        android:layout_margin="10dp"
         android:background="@drawable/panel_background"
         android:orientation="vertical">
 
         <TextView
+            android:id="@+id/answer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/app_title"
-            android:textColor="@color/cyan"
-            android:textSize="18sp"
-            android:textStyle="bold" />
+            android:maxLines="3"
+            android:ellipsize="end"
+            android:text="@string/welcome"
+            android:textColor="@color/white"
+            android:textSize="16sp" />
 
-        <TextView
-            android:id="@+id/orientation"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="@string/waiting_for_orientation"
-            android:textColor="@color/amber"
-            android:textSize="14sp" />
+            android:orientation="horizontal">
 
-        <EditText
-            android:id="@+id/server_url"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:autofillHints=""
-            android:hint="@string/server_url_hint"
-            android:inputType="textUri"
-            android:maxLines="1"
-            android:selectAllOnFocus="true"
-            android:textColor="@color/white"
-            android:textColorHint="@color/muted" />
+            <EditText
+                android:id="@+id/question"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:hint="@string/question_hint"
+                android:inputType="textCapSentences"
+                android:imeOptions="actionSend"
+                android:maxLines="1"
+                android:textColor="@color/white"
+                android:textColorHint="@color/muted"
+                android:textSize="14sp" />
 
-        <Button
-            android:id="@+id/stream_button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/start_streaming" />
+            <Button
+                android:id="@+id/ask_button"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:minHeight="40dp"
+                android:text="@string/ask" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/status"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="@string/waiting_for_camera"
-            android:textColor="@color/white"
-            android:textSize="13sp" />
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="@string/starting"
+            android:textColor="@color/muted"
+            android:textSize="11sp" />
     </LinearLayout>
 </FrameLayout>

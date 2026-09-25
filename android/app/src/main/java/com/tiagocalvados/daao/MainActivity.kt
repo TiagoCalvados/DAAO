@@ -1,337 +1,255 @@
 package com.tiagocalvados.daao
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
-import android.view.Surface
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
-import androidx.camera.core.resolutionselector.AspectRatioStrategy
-import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
-import androidx.core.content.edit
-import java.io.ByteArrayOutputStream
-import java.net.URI
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.Locale
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var previewView: PreviewView
-    private lateinit var serverUrl: EditText
-    private lateinit var streamButton: Button
-    private lateinit var orientationText: TextView
+    private lateinit var answerText: TextView
     private lateinit var statusText: TextView
-
-    private val cameraExecutor = Executors.newSingleThreadExecutor()
-    private val networkExecutor = Executors.newSingleThreadExecutor()
-    private val sending = AtomicBoolean(false)
+    private lateinit var questionInput: EditText
+    private val handler = Handler(Looper.getMainLooper())
     private val orientationTracker by lazy { OrientationTracker(this) }
     private val locationTracker by lazy { LocationTracker(this) }
-    private val protocol by lazy {
-        DaaoProtocol(deviceId = "${Build.MANUFACTURER} ${Build.MODEL}")
+    private var recognizer: SpeechRecognizer? = null
+    private var speechEngine: TextToSpeech? = null
+    private var speechReady = false
+    private var listening = false
+    private var speaking = false
+    private var active = false
+    private var microphoneDenied = false
+
+    private val askForCamera = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startCamera() else statusText.text = getString(R.string.camera_permission_needed)
+        requestLocationPermission()
     }
-
-    @Volatile
-    private var streaming = false
-    @Volatile
-    private var streamingEndpoint: URI? = null
-    private var nextFrameAtNs = 0L
-    private var sentFrames = 0L
-    @Volatile
-    private var imageTargetRotationDegrees = 0
-
-    private val requestCameraPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                startCamera()
-                requestLocationIfNeeded()
-            } else {
-                setStatus("Camera permission is required to stream images.")
-            }
-        }
-
-    private val requestLocationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-            if (result.values.any { it }) {
-                locationTracker.start()
-            } else {
-                setStatus("Location permission was denied; the sky overlay will wait for GPS.")
-            }
-        }
+    private val askForLocation = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (result.values.any { it }) locationTracker.start()
+        requestMicrophonePermission()
+    }
+    private val askForMicrophone = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        microphoneDenied = !granted
+        if (granted) startListening() else statusText.text = getString(R.string.microphone_permission_needed)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
         previewView = findViewById(R.id.preview)
-        serverUrl = findViewById(R.id.server_url)
-        streamButton = findViewById(R.id.stream_button)
-        orientationText = findViewById(R.id.orientation)
+        answerText = findViewById(R.id.answer)
         statusText = findViewById(R.id.status)
-
-        val preferences = getSharedPreferences("daao", MODE_PRIVATE)
-        serverUrl.setText(
-            preferences.getString(
-                "server_url",
-                "",
-            ),
-        )
-        streamButton.setOnClickListener {
-            if (streaming) {
-                stopStreaming()
-            } else {
-                val endpoint = validateEndpoint() ?: return@setOnClickListener
-                preferences.edit { putString("server_url", endpoint.toString()) }
-                serverUrl.setText(endpoint.toString())
-                startStreaming(endpoint)
-            }
+        questionInput = findViewById(R.id.question)
+        val askButton: Button = findViewById(R.id.ask_button)
+        askButton.setOnClickListener { submitTypedQuestion() }
+        questionInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEND) {
+                submitTypedQuestion()
+                true
+            } else false
         }
+        speechEngine = TextToSpeech(this, this)
 
-        if (!orientationTracker.isAvailable) {
-            orientationText.text = getString(R.string.no_orientation_sensor)
-            streamButton.isEnabled = false
-        } else {
-            orientationText.text = getString(
-                R.string.sensor_name,
-                orientationTracker.sensorName,
-            )
-        }
-
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startCamera()
-            requestLocationIfNeeded()
+            requestLocationPermission()
         } else {
-            requestCameraPermission.launch(Manifest.permission.CAMERA)
+            askForCamera.launch(Manifest.permission.CAMERA)
         }
+    }
+
+    private fun requestLocationPermission() {
+        if (!locationTracker.hasPermission) {
+            askForLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        } else requestMicrophonePermission()
+    }
+
+    private fun requestMicrophonePermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            askForMicrophone.launch(Manifest.permission.RECORD_AUDIO)
+        } else startListening()
     }
 
     override fun onResume() {
         super.onResume()
+        active = true
         orientationTracker.start()
         locationTracker.start()
+        startListening()
     }
 
     override fun onPause() {
+        active = false
+        handler.removeCallbacksAndMessages(null)
+        stopListening()
+        speechEngine?.stop()
+        speaking = false
         orientationTracker.stop()
         locationTracker.stop()
         super.onPause()
     }
 
     override fun onDestroy() {
-        streaming = false
-        cameraExecutor.shutdown()
-        networkExecutor.shutdown()
+        recognizer?.destroy()
+        recognizer = null
+        speechEngine?.shutdown()
+        speechEngine = null
         super.onDestroy()
     }
 
     private fun startCamera() {
         val providerFuture = ProcessCameraProvider.getInstance(this)
-        providerFuture.addListener(
-            {
-                try {
-                    val provider = providerFuture.get()
-                    val targetRotation = previewView.display.rotation
-                    imageTargetRotationDegrees = when (targetRotation) {
-                        Surface.ROTATION_0 -> 0
-                        Surface.ROTATION_90 -> 90
-                        Surface.ROTATION_180 -> 180
-                        Surface.ROTATION_270 -> 270
-                        else -> 0
-                    }
-                    val preview = Preview.Builder()
-                        .setTargetRotation(targetRotation)
-                        .build()
-                        .also { it.surfaceProvider = previewView.surfaceProvider }
-                    val resolutionSelector = ResolutionSelector.Builder()
-                        .setAspectRatioStrategy(
-                            AspectRatioStrategy(
-                                AspectRatio.RATIO_16_9,
-                                AspectRatioStrategy.FALLBACK_RULE_AUTO,
-                            ),
-                        )
-                        .build()
-                    val analysis = ImageAnalysis.Builder()
-                        .setResolutionSelector(resolutionSelector)
-                        .setTargetRotation(targetRotation)
-                        .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-                        .setOutputImageRotationEnabled(true)
-                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                        .build()
-                    analysis.setAnalyzer(cameraExecutor, ::analyzeFrame)
+        providerFuture.addListener({
+            try {
+                val provider = providerFuture.get()
+                val preview = Preview.Builder().build()
+                preview.surfaceProvider = previewView.surfaceProvider
+                provider.unbindAll()
+                provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview)
+            } catch (_: Exception) {
+                statusText.text = getString(R.string.camera_unavailable)
+            }
+        }, ContextCompat.getMainExecutor(this))
+    }
 
-                    provider.unbindAll()
-                    provider.bindToLifecycle(
-                        this,
-                        CameraSelector.DEFAULT_BACK_CAMERA,
-                        preview,
-                        analysis,
-                    )
-                    setStatus("Camera ready. Enter the desktop URL and tap Start streaming.")
-                } catch (error: Exception) {
-                    setStatus("Could not start camera: ${error.message}")
-                }
-            },
-            ContextCompat.getMainExecutor(this),
+    private fun submitTypedQuestion() {
+        val question = questionInput.text.toString().trim()
+        if (question.isEmpty()) return
+        questionInput.text.clear()
+        answer(question)
+    }
+
+    private fun answer(question: String) {
+        stopListening()
+        val location = locationTracker.snapshot()
+        val orientation = orientationTracker.snapshot()
+        val locationFresh = location != null &&
+            System.currentTimeMillis() - location.timestampEpochMs in 0L..900_000L
+        val orientationFresh = orientation != null &&
+            SystemClock.elapsedRealtimeNanos() - orientation.sensorTimestampNs in 0L..5_000_000_000L
+        val compassReliable = orientation?.headingAccuracyDegrees?.let { it <= 20.0 } ?: true
+        val bearing = orientation?.cameraPose?.magneticBearingDegrees?.let {
+            (it + (location?.magneticDeclinationDegrees ?: 0.0) + 360.0) % 360.0
+        }
+        val objects = location?.takeIf { locationFresh }?.let {
+            SkyGuide.objects(it.latitudeDegrees, it.longitudeDegrees, System.currentTimeMillis())
+        }
+        val reply = if (!compassReliable) {
+            "The compass is too uncertain to identify this direction. Move away from metal and try again."
+        } else SkyGuide.answer(
+            question,
+            objects,
+            orientation?.cameraPose?.elevationDegrees?.takeIf { orientationFresh },
+            bearing?.takeIf { orientationFresh },
         )
-    }
-
-    private fun requestLocationIfNeeded() {
-        if (locationTracker.hasPermission) {
-            locationTracker.start()
+        answerText.text = reply
+        if (speechReady) {
+            speaking = true
+            if (speechEngine?.speak(reply, TextToSpeech.QUEUE_FLUSH, null, "daao-answer") == TextToSpeech.ERROR) {
+                speaking = false
+                scheduleListening(600)
+            }
         } else {
-            requestLocationPermission.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                ),
-            )
+            scheduleListening(600)
         }
     }
 
-    private fun analyzeFrame(image: ImageProxy) {
-        try {
-            if (!streaming) {
-                return
-            }
-            val now = SystemClock.elapsedRealtimeNanos()
-            if (now < nextFrameAtNs || !sending.compareAndSet(false, true)) {
-                return
-            }
-            nextFrameAtNs = now + FRAME_INTERVAL_NS
+    override fun onInit(status: Int) {
+        if (status != TextToSpeech.SUCCESS) return
+        val engine = speechEngine ?: return
+        speechReady = engine.setLanguage(Locale.getDefault()) >= TextToSpeech.LANG_AVAILABLE
+        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) = Unit
+            override fun onDone(utteranceId: String?) { handler.post { speaking = false; scheduleListening(350) } }
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) { handler.post { speaking = false; scheduleListening(350) } }
+        })
+    }
 
-            val snapshot = orientationTracker.snapshot()
-            if (snapshot == null) {
-                sending.set(false)
-                setStatus("Waiting for an orientation reading…")
-                return
-            }
-
-            val jpeg = image.toJpeg()
-            val capturedAtEpochNs = System.currentTimeMillis() * 1_000_000L
-            val json = protocol.sensorJson(
-                snapshot = snapshot,
-                capturedAtEpochNs = capturedAtEpochNs,
-                imageTimestampNs = capturedAtEpochNs,
-                cameraRollDegrees = OrientationMath.cameraRollForTarget(
-                    snapshot.cameraPose.cameraRollDegrees,
-                    imageTargetRotationDegrees,
-                ),
-                location = locationTracker.snapshot(),
-            )
-            val multipart = DaaoProtocol.multipart(json, jpeg)
-            val endpoint = streamingEndpoint
-            if (endpoint == null) {
-                sending.set(false)
-                setStatus("The receiver address is unavailable.")
-                return
-            }
-            updateOrientation(snapshot)
-
-            networkExecutor.execute {
-                try {
-                    val result = DaaoHttpSender.send(endpoint, multipart)
-                    if (result.statusCode in 200..299) {
-                        sentFrames += 1
-                        setStatus(
-                            "Streaming • HTTP ${result.statusCode} • frame $sentFrames • " +
-                                "${jpeg.size / 1024} KiB",
-                        )
+    private fun startListening() {
+        if (!active || speaking || listening || microphoneDenied ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+        val onDeviceAvailable = Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+        if (!onDeviceAvailable && !SpeechRecognizer.isRecognitionAvailable(this)) {
+            statusText.text = getString(R.string.speech_unavailable)
+            return
+        }
+        if (recognizer == null) {
+            recognizer = if (onDeviceAvailable) {
+                SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+            } else SpeechRecognizer.createSpeechRecognizer(this)
+            recognizer?.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) { statusText.text = getString(R.string.listening) }
+                override fun onBeginningOfSpeech() = Unit
+                override fun onRmsChanged(rmsdB: Float) = Unit
+                override fun onBufferReceived(buffer: ByteArray?) = Unit
+                override fun onEndOfSpeech() = Unit
+                override fun onPartialResults(partialResults: Bundle?) = Unit
+                override fun onEvent(eventType: Int, params: Bundle?) = Unit
+                override fun onError(error: Int) {
+                    listening = false
+                    if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                        microphoneDenied = true
+                        statusText.text = getString(R.string.microphone_permission_needed)
                     } else {
-                        setStatus(
-                            "Receiver returned HTTP ${result.statusCode}: " +
-                                result.responseText.take(120),
-                        )
+                        statusText.text = getString(R.string.listening_paused)
+                        scheduleListening(if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 1500 else 500)
                     }
-                } catch (error: Exception) {
-                    setStatus("Send failed: ${error.message}")
-                } finally {
-                    sending.set(false)
                 }
-            }
-        } catch (error: Exception) {
-            sending.set(false)
-            setStatus("Frame conversion failed: ${error.message}")
-        } finally {
-            image.close()
-        }
-    }
-
-    private fun ImageProxy.toJpeg(): ByteArray {
-        val bitmap = toBitmap()
-        return try {
-            ByteArrayOutputStream().use { output ->
-                check(bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)) {
-                    "JPEG encoder rejected the camera frame"
+                override fun onResults(results: Bundle?) {
+                    listening = false
+                    val heard = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                    if (heard.isNullOrBlank()) scheduleListening(400) else answer(heard)
                 }
-                output.toByteArray()
-            }
-        } finally {
-            bitmap.recycle()
+            })
+        }
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+        }
+        try {
+            listening = true
+            recognizer?.startListening(intent)
+        } catch (_: Exception) {
+            listening = false
+            statusText.text = getString(R.string.speech_unavailable)
         }
     }
 
-    private fun startStreaming(endpoint: URI) {
-        streamingEndpoint = endpoint
-        streaming = true
-        sentFrames = 0
-        nextFrameAtNs = 0
-        streamButton.text = getString(R.string.stop_streaming)
-        serverUrl.isEnabled = false
-        setStatus("Starting stream…")
-    }
-
-    private fun stopStreaming() {
-        streaming = false
-        streamingEndpoint = null
-        streamButton.text = getString(R.string.start_streaming)
-        serverUrl.isEnabled = true
-        setStatus("Streaming stopped.")
-    }
-
-    private fun validateEndpoint(): URI? {
-        return try {
-            DaaoProtocol.normalizeEndpoint(serverUrl.text.toString())
-        } catch (error: IllegalArgumentException) {
-            serverUrl.error = error.message
-            null
+    private fun stopListening() {
+        if (listening) {
+            listening = false
+            recognizer?.cancel()
         }
     }
 
-    private fun updateOrientation(snapshot: OrientationSnapshot) {
-        val heading = snapshot.cameraPose.magneticBearingDegrees
-        val headingText = heading?.let { "%06.2f° M".format(it) } ?: "vertical"
-        runOnUiThread {
-            orientationText.text = getString(
-                R.string.orientation_readout,
-                headingText,
-                snapshot.cameraPose.elevationDegrees,
-            )
-        }
-    }
-
-    private fun setStatus(message: String) {
-        runOnUiThread { statusText.text = message }
-    }
-
-    companion object {
-        private const val FRAME_INTERVAL_NS = 1_000_000_000L
-        private const val JPEG_QUALITY = 80
+    private fun scheduleListening(delayMillis: Long) {
+        if (active) handler.postDelayed({ startListening() }, delayMillis)
     }
 }

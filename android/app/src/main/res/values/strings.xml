@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">DAAO Camera</string>
-    <string name="app_title">DIY Astronomical Attic Observatory</string>
-    <string name="server_url_hint">http://YOUR-COMPUTER-IP:8000/data</string>
-    <string name="start_streaming">Start streaming</string>
-    <string name="stop_streaming">Stop streaming</string>
-    <string name="waiting_for_camera">Waiting for camera permission…</string>
-    <string name="waiting_for_orientation">Waiting for orientation sensor…</string>
-    <string name="no_orientation_sensor">No rotation-vector sensor is available.</string>
-    <string name="sensor_name">Sensor: %1$s</string>
-    <string name="orientation_readout">%1$s • elevation %2$+.1f°</string>
+    <string name="app_name">DAAO</string>
+    <string name="welcome">Welcome Tiago, what would you like to know?</string>
+    <string name="camera_preview">Live sky camera</string>
+    <string name="question_hint">Or type a question</string>
+    <string name="ask">Ask</string>
+    <string name="starting">Getting ready…</string>
+    <string name="listening">Listening…</string>
+    <string name="listening_paused">Listening again…</string>
+    <string name="camera_permission_needed">Allow camera access to see the sky.</string>
+    <string name="camera_unavailable">Camera is unavailable.</string>
+    <string name="microphone_permission_needed">Allow microphone access to ask by voice, or type below.</string>
+    <string name="speech_unavailable">Voice recognition is unavailable; type your question below.</string>
 </resources>
