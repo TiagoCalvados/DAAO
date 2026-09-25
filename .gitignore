@@ -22,3 +22,6 @@ android/**/build/
 *.keystore
 *.p12
 keystore.properties
+
+# Personal voice recordings and downloaded model weights
+.private/

@@ -28,7 +28,7 @@
     </queries>
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@drawable/ic_daao"
         android:label="@string/app_name"
         android:supportsRtl="true"

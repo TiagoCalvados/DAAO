@@ -1,6 +1,6 @@
 # DAAO
 
-DAAO 0.4.0 is a phone-first astronomy assistant. Open the Android app, point the
+DAAO 0.4.1 is a phone-first astronomy assistant. Open the Android app, point the
 camera at the sky, and ask a question aloud. The phone uses its location, compass,
 time, and a small built-in sky catalog to answer. The desktop receiver is optional
 and no longer required by the Android app.
@@ -27,11 +27,11 @@ Compass calibration, magnetic interference, GPS accuracy, camera field of view,
 and the approximate Moon calculation can affect the answer. The app never invents
 objects elsewhere in the sky to fill a description.
 
-Android uses an available device speech recognition service, preferring an on-device
-recognizer on Android 12 and later. Offline speech availability depends on the
-installed recognizer and language pack. The current spoken reply uses the device's
-text-to-speech voice. A personal voice clone requires a supplied voice recording
-and a compatible synthesis engine.
+Voice questions use Android's on-device recognizer on Android 12 and later.
+Availability depends on the phone and its installed language pack. Typing still
+works when offline recognition is unavailable. The ordinary debug build speaks
+with the phone's text-to-speech voice. A private `tiago` build speaks with Tiago's
+confirmed voice reference using Pocket TTS entirely on the phone.
 
 ## Build and install the Android app
 
@@ -45,6 +45,24 @@ The APK is `android\app\build\outputs\apk\debug\app-debug.apk`. Install it on an
 Android phone with `adb install -r` or transfer it to the phone and open it.
 Grant camera, location, and microphone permissions. No desktop URL or streaming
 setup is needed.
+
+### Private Tiago voice build
+
+The user's recording, model weights, and native voice runtime are deliberately
+excluded from Git. To build the private APK, place the seven Pocket TTS model
+files in `.private/android-assets/pocket/`, a mono 24 kHz PCM16 reference WAV in
+`.private/android-assets/voice/tiago-reference.wav`, and the sherpa-onnx 1.13.8
+Android AAR in `.private/runtime/sherpa-onnx-1.13.8.aar`. Then run:
+
+```powershell
+.\android\gradlew.bat -p .\android :app:assembleTiago
+```
+
+The result is `android\app\build\outputs\apk\tiago\app-tiago.apk`. This build
+includes the private reference and approximately 198 MB of model weights. It
+never sends voice recordings or generated speech to the desktop or a speech
+service. On first use it copies the model to app-private storage, which needs
+additional free space. Do not distribute this APK without Tiago's consent.
 
 For a release build, set `DAAO_SIGNING_PROPERTIES` to a private properties file
 with `storeFile`, `storePassword`, `keyAlias`, and `keyPassword`, then run

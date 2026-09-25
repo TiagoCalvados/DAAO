@@ -39,8 +39,8 @@ android {
         applicationId = "com.tiagocalvados.daao"
         minSdk = 23
         targetSdk = 36
-        versionCode = 400
-        versionName = "0.4.0"
+        versionCode = 401
+        versionName = "0.4.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -57,6 +57,11 @@ android {
     }
 
     buildTypes {
+        create("tiago") {
+            initWith(getByName("debug"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("debug")
+        }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("release")
@@ -66,6 +71,8 @@ android {
             )
         }
     }
+
+    sourceSets.getByName("tiago").assets.srcDir(rootProject.file("../.private/android-assets"))
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -78,6 +85,7 @@ android {
 }
 
 dependencies {
+    add("tiagoImplementation", files(rootProject.file("../.private/runtime/sherpa-onnx-1.13.8.aar")))
     implementation("androidx.activity:activity-ktx:1.13.0")
     implementation("androidx.camera:camera-camera2:1.6.1")
     implementation("androidx.camera:camera-core:1.6.1")

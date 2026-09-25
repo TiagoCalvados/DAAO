@@ -1,0 +1,3 @@
+<resources>
+    <bool name="use_private_voice">true</bool>
+</resources>

@@ -12,4 +12,6 @@
     <string name="camera_unavailable">Camera is unavailable.</string>
     <string name="microphone_permission_needed">Allow microphone access to ask by voice, or type below.</string>
     <string name="speech_unavailable">Voice recognition is unavailable; type your question below.</string>
+    <string name="offline_speech_unavailable">Offline speech recognition is unavailable; type your question below.</string>
+    <string name="private_voice_unavailable">Tiago voice is unavailable. The answer is shown on screen.</string>
 </resources>

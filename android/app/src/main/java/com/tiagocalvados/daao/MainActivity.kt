@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val locationTracker by lazy { LocationTracker(this) }
     private var recognizer: SpeechRecognizer? = null
     private var speechEngine: TextToSpeech? = null
+    private var cloneVoice: VoiceOutput? = null
     private var speechReady = false
     private var listening = false
     private var speaking = false
@@ -72,7 +73,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 true
             } else false
         }
-        speechEngine = TextToSpeech(this, this)
+        if (resources.getBoolean(R.bool.use_private_voice)) {
+            try {
+                cloneVoice = Class.forName("com.tiagocalvados.daao.CloneVoice")
+                    .getConstructor(android.content.Context::class.java)
+                    .newInstance(this) as VoiceOutput
+            } catch (_: Exception) {
+                statusText.text = getString(R.string.private_voice_unavailable)
+            }
+        } else {
+            speechEngine = TextToSpeech(this, this)
+        }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startCamera()
@@ -107,6 +118,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         handler.removeCallbacksAndMessages(null)
         stopListening()
         speechEngine?.stop()
+        cloneVoice?.stop()
         speaking = false
         orientationTracker.stop()
         locationTracker.stop()
@@ -118,6 +130,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         recognizer = null
         speechEngine?.shutdown()
         speechEngine = null
+        cloneVoice?.shutdown()
+        cloneVoice = null
         super.onDestroy()
     }
 
@@ -167,7 +181,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             bearing?.takeIf { orientationFresh },
         )
         answerText.text = reply
-        if (speechReady) {
+        val privateVoice = cloneVoice
+        if (privateVoice != null) {
+            speaking = true
+            privateVoice.speak(reply) { error ->
+                handler.post {
+                    speaking = false
+                    if (error != null) statusText.text = getString(R.string.private_voice_unavailable)
+                    scheduleListening(350)
+                }
+            }
+        } else if (speechReady) {
             speaking = true
             if (speechEngine?.speak(reply, TextToSpeech.QUEUE_FLUSH, null, "daao-answer") == TextToSpeech.ERROR) {
                 speaking = false
@@ -194,14 +218,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (!active || speaking || listening || microphoneDenied ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
         val onDeviceAvailable = Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
-        if (!onDeviceAvailable && !SpeechRecognizer.isRecognitionAvailable(this)) {
-            statusText.text = getString(R.string.speech_unavailable)
+        if (!onDeviceAvailable) {
+            statusText.text = getString(R.string.offline_speech_unavailable)
             return
         }
         if (recognizer == null) {
-            recognizer = if (onDeviceAvailable) {
-                SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
-            } else SpeechRecognizer.createSpeechRecognizer(this)
+            recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
             recognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) { statusText.text = getString(R.string.listening) }
                 override fun onBeginningOfSpeech() = Unit
