@@ -39,8 +39,8 @@ android {
         applicationId = "com.tiagocalvados.daao"
         minSdk = 23
         targetSdk = 36
-        versionCode = 401
-        versionName = "0.4.1"
+        versionCode = 402
+        versionName = "0.4.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -59,6 +59,7 @@ android {
     buildTypes {
         create("tiago") {
             initWith(getByName("debug"))
+            applicationIdSuffix = ".tiago"
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("debug")
         }

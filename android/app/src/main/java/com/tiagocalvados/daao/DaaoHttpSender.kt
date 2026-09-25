@@ -19,7 +19,7 @@ object DaaoHttpSender {
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", body.contentType)
             connection.setRequestProperty("Accept", "application/json")
-            connection.setRequestProperty("User-Agent", "DAAO-Android/0.4.1")
+            connection.setRequestProperty("User-Agent", "DAAO-Android/0.4.2")
             connection.setFixedLengthStreamingMode(body.bytes.size)
             connection.outputStream.use { it.write(body.bytes) }
 

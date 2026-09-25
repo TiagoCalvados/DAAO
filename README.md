@@ -1,6 +1,6 @@
 # DAAO
 
-DAAO 0.4.1 is a phone-first astronomy assistant. Open the Android app, point the
+DAAO 0.4.2 is a phone-first astronomy assistant. Open the Android app, point the
 camera at the sky, and ask a question aloud. The phone uses its location, compass,
 time, and a small built-in sky catalog to answer. The desktop receiver is optional
 and no longer required by the Android app.
@@ -58,7 +58,8 @@ Android AAR in `.private/runtime/sherpa-onnx-1.13.8.aar`. Then run:
 .\android\gradlew.bat -p .\android :app:assembleTiago
 ```
 
-The result is `android\app\build\outputs\apk\tiago\app-tiago.apk`. This build
+The result is `android\app\build\outputs\apk\tiago\app-tiago.apk`. It installs
+as **DAAO Tiago** with its own app ID, beside any older DAAO installation. This build
 includes the private reference and approximately 198 MB of model weights. It
 never sends voice recordings or generated speech to the desktop or a speech
 service. On first use it copies the model to app-private storage, which needs
