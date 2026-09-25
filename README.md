@@ -1,6 +1,6 @@
 # DAAO
 
-DAAO 0.4.2 is a phone-first astronomy assistant. Open the Android app, point the
+DAAO 0.4.3 is a phone-first astronomy assistant. Open the Android app, point the
 camera at the sky, and ask a question aloud. The phone uses its location, compass,
 time, and a small built-in sky catalog to answer. The desktop receiver is optional
 and no longer required by the Android app.
@@ -9,7 +9,9 @@ On launch, the app shows **“Welcome Tiago, what would you like to know?”** w
 speaking. It listens for a question and speaks only in response. There are no
 **Voice**, **Describe sky**, or **Start streaming** controls. A small text field is
 available if speech recognition is unavailable. The answer panel occupies a narrow
-strip at the bottom of the camera preview.
+strip at the bottom of the camera preview. A compact panel at the top shows live
+pointing direction, elevation, GPS coordinates, and location accuracy. Tap it to
+see pitch, roll, height, and compass accuracy.
 
 Try:
 

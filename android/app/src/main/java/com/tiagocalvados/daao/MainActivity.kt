@@ -31,6 +31,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var previewView: PreviewView
     private lateinit var answerText: TextView
     private lateinit var statusText: TextView
+    private lateinit var readingsText: TextView
     private lateinit var questionInput: EditText
     private val handler = Handler(Looper.getMainLooper())
     private val orientationTracker by lazy { OrientationTracker(this) }
@@ -43,6 +44,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var speaking = false
     private var active = false
     private var microphoneDenied = false
+    private var readingsExpanded = false
+    private val readingsUpdater = object : Runnable {
+        override fun run() {
+            updateReadings()
+            if (active) handler.postDelayed(this, 1_000)
+        }
+    }
 
     private val askForCamera = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) startCamera() else statusText.text = getString(R.string.camera_permission_needed)
@@ -64,6 +72,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         previewView = findViewById(R.id.preview)
         answerText = findViewById(R.id.answer)
         statusText = findViewById(R.id.status)
+        readingsText = findViewById(R.id.readings)
+        readingsText.setOnClickListener {
+            readingsExpanded = !readingsExpanded
+            updateReadings()
+        }
         questionInput = findViewById(R.id.question)
         val askButton: Button = findViewById(R.id.ask_button)
         askButton.setOnClickListener { submitTypedQuestion() }
@@ -110,6 +123,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         active = true
         orientationTracker.start()
         locationTracker.start()
+        handler.post(readingsUpdater)
         startListening()
     }
 
@@ -148,6 +162,41 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 statusText.text = getString(R.string.camera_unavailable)
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun updateReadings() {
+        val now = System.currentTimeMillis()
+        val location = locationTracker.snapshot()?.takeIf { now - it.timestampEpochMs in 0L..60_000L }
+        val orientation = orientationTracker.snapshot()?.takeIf {
+            SystemClock.elapsedRealtimeNanos() - it.sensorTimestampNs in 0L..5_000_000_000L
+        }
+        val magneticBearing = orientation?.cameraPose?.magneticBearingDegrees
+        val trueBearing = if (magneticBearing != null && location != null) {
+            (magneticBearing + location.magneticDeclinationDegrees + 360.0) % 360.0
+        } else null
+        val bearingText = when {
+            trueBearing != null -> String.format(Locale.getDefault(), "Az %.0f° T", trueBearing)
+            magneticBearing != null -> String.format(Locale.getDefault(), "Heading %.0f° M", magneticBearing)
+            orientation != null -> "Pointing vertically"
+            else -> "Pointing: waiting for sensors"
+        }
+        val elevationText = orientation?.cameraPose?.elevationDegrees?.let {
+            String.format(Locale.getDefault(), " · Elev %+.1f°", it)
+        } ?: ""
+        val gpsText = location?.let {
+            val accuracy = it.horizontalAccuracyMeters?.let { meters ->
+                String.format(Locale.getDefault(), " · ±%.0f m", meters)
+            } ?: ""
+            String.format(Locale.getDefault(), "GPS %.5f, %.5f", it.latitudeDegrees, it.longitudeDegrees) + accuracy
+        } ?: "GPS: waiting for location"
+        val details = if (readingsExpanded) {
+            val pitch = orientation?.pitchDegrees?.let { String.format(Locale.getDefault(), "%+.1f°", it) } ?: "—"
+            val roll = orientation?.rollDegrees?.let { String.format(Locale.getDefault(), "%+.1f°", it) } ?: "—"
+            val altitude = location?.altitudeMeters?.let { String.format(Locale.getDefault(), "%.0f m", it) } ?: "—"
+            val compass = orientation?.headingAccuracyDegrees?.let { String.format(Locale.getDefault(), "±%.0f°", it) } ?: "—"
+            "\nPitch $pitch · Roll $roll · Height $altitude\nCompass accuracy $compass"
+        } else ""
+        readingsText.text = "$bearingText$elevationText\n$gpsText$details  ${if (readingsExpanded) "▴" else "▾"}"
     }
 
     private fun submitTypedQuestion() {

@@ -14,4 +14,5 @@
     <string name="speech_unavailable">Voice recognition is unavailable; type your question below.</string>
     <string name="offline_speech_unavailable">Offline speech recognition is unavailable; type your question below.</string>
     <string name="private_voice_unavailable">Tiago voice is unavailable. The answer is shown on screen.</string>
+    <string name="waiting_for_readings">Pointing: waiting for sensors\nGPS: waiting for location  ▾</string>
 </resources>
